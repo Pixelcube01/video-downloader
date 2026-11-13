@@ -4,3 +4,8 @@ cookies.txt
 settings.json
 logs/
 .venv/
+
+# Desktop build output
+build/
+dist/
+vendor/

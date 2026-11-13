@@ -57,8 +57,34 @@ MEDIA_SITES = {"instagram", "twitter", "reddit", "linkedin", "pinterest", "faceb
 HAS_GALLERY_DL = importlib.util.find_spec("gallery_dl") is not None
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_FILE = os.path.join(PROJECT_DIR, "settings.json")
-COOKIES_FILE = os.path.join(PROJECT_DIR, "cookies.txt")
+FROZEN = getattr(sys, "frozen", False)  # True inside the packaged desktop app
+
+
+def user_data_dir() -> str:
+    """Writable folder for settings, cookies and logs.
+
+    The packaged app's own folder is read-only (Program Files, a signed .app),
+    so the desktop build keeps its files in the usual per-user location.
+    """
+    if not FROZEN:
+        return PROJECT_DIR
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    path = os.path.join(base, "VideoDownloader")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+DATA_DIR = user_data_dir()
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+COOKIES_FILE = os.path.join(DATA_DIR, "cookies.txt")
+# How to start gallery-dl: in the packaged app sys.executable is the app itself,
+# which desktop.py routes to gallery-dl when started with "-m gallery_dl".
+GALLERY_DL_CMD = [sys.executable, "-m", "gallery_dl"]
 COOKIE_BROWSERS = ("firefox", "chrome", "edge", "brave", "opera", "vivaldi", "chromium")
 # Download choices sent by the browser: h<height>, audio, mp3, best, or fid:<format id>.
 FORMAT_KEY = re.compile(r"h\d{2,4}|audio|mp3|best|fid:[\w\-]+")
@@ -75,11 +101,15 @@ def find_ffmpeg() -> str | None:
     env = os.environ.get("FFMPEG_PATH")
     if env and os.path.exists(env):
         return env
+    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    if FROZEN:  # ffmpeg bundled next to the app's files
+        bundled = os.path.join(getattr(sys, "_MEIPASS", PROJECT_DIR), exe)
+        if os.path.isfile(bundled):
+            return bundled
     found = shutil.which("ffmpeg")
     if found:
         return found
     home = os.path.expanduser("~")
-    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
     candidates = [
         os.path.join(home, "bin", exe),
         os.path.join(home, "ffmpeg", "bin", exe),
@@ -88,6 +118,7 @@ def find_ffmpeg() -> str | None:
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links", exe),
         os.path.join(home, "scoop", "shims", exe),
         os.path.join("C:\\", "ProgramData", "chocolatey", "bin", exe),
+        "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg",  # Homebrew on macOS
     ]
     return next((p for p in candidates if os.path.isfile(p)), None)
 
@@ -517,7 +548,7 @@ def gallery_dl_media(url: str) -> tuple[list[dict], str | None, dict]:
     """List every file gallery-dl finds in a post. Returns (items, error, post meta)."""
     if not HAS_GALLERY_DL:
         return [], "gallery-dl is not installed (pip install gallery-dl).", {}
-    cmd = [sys.executable, "-m", "gallery_dl", "--dump-json", *gallery_cookie_args()]
+    cmd = [*GALLERY_DL_CMD, "--dump-json", *gallery_cookie_args()]
     try:
         r = subprocess.run([*cmd, url], capture_output=True, text=True, timeout=90,
                            encoding="utf-8", errors="replace")
@@ -724,7 +755,7 @@ def tiktok_local(url: str) -> tuple[dict | None, str | None]:
         return None, "TikTok needs gallery-dl: run  pip install gallery-dl"
     folder = os.path.join(DOWNLOAD_ROOT, "tt-" + uuid.uuid4().hex)
     os.makedirs(folder)
-    cmd = [sys.executable, "-m", "gallery_dl", *gallery_cookie_args(), "-D", folder,
+    cmd = [*GALLERY_DL_CMD, *gallery_cookie_args(), "-D", folder,
            "--filename", "{id}_{num}.{extension}", "--write-metadata", url]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, encoding="utf-8", errors="replace")
@@ -1484,7 +1515,7 @@ def new_job(**fields) -> dict:
     return job
 
 
-ERROR_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "errors.log")
+ERROR_LOG = os.path.join(DATA_DIR, "logs", "errors.log")
 
 
 def log_error(job: dict, exc: BaseException, note: str = ""):
