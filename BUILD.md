@@ -17,7 +17,7 @@ python desktop.py
 | Build | Runner | Output |
 |---|---|---|
 | Windows 10/11 (64-bit) | windows-latest | `VideoDownloader-windows-x64.zip` |
-| Mac with Apple Silicon (M1–M4) | macos-14 | `VideoDownloader-macos-arm64.dmg` |
+| Mac with Apple Silicon (M1–M4) | macos-15 | `VideoDownloader-macos-arm64.dmg` |
 | Mac with Intel chip | macos-15-intel | `VideoDownloader-macos-intel.dmg` |
 
 Download them from the workflow run's **Artifacts** section. To publish a release,
